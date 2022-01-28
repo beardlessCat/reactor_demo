@@ -25,6 +25,7 @@ public class NioDemo {
             Iterator iterator = keys.iterator();
             while (iterator.hasNext()) {
                 SelectionKey key = (SelectionKey) iterator.next();
+                //删除！！！
                 iterator.remove();
                 //当前就绪事件为连接事件
                 if (key.isAcceptable()) {
@@ -34,18 +35,25 @@ public class NioDemo {
                     System.out.println(String.format("收到来自 %s 的连接", socketChannel.getRemoteAddress()));
                     socketChannel.register(selector, SelectionKey.OP_READ); //将该客户端注册到选择器，感兴趣事件设置为读（客户端连接完毕，很肯能会往服务端写数据，因此这里要注册读事件用以接收这些数据）
                 } else if (key.isReadable()) { //当前事件为读就绪
-                    SocketChannel socketChannel = (SocketChannel) key.channel(); //能触发读就绪，说明客户端已经开始往服务端写数据，通过SelectionKey拿到当前客户端通道
-                    ByteBuffer buffer = ByteBuffer.allocate(1024);
-                    int count = socketChannel.read(buffer); //从通道读入数据
-                    if (count < 0) { //若本次读就绪拿到-1，则认为客户端主动断开了连接
-                        socketChannel.close(); //服务端关闭客户端通道
-                        key.cancel(); //断连后就将该事件从选择器的SelectionKey集合中移除（这里说一下，这里不是真正意义上的移除，这里是取消，会将该key放入取消队列里，在下次select函数调用时才负责清空）
-                        System.out.println("连接关闭");
-                        continue;
+                    try {
+                        SocketChannel socketChannel = (SocketChannel) key.channel(); //能触发读就绪，说明客户端已经开始往服务端写数据，通过SelectionKey拿到当前客户端通道
+                        ByteBuffer buffer = ByteBuffer.allocate(1024);
+                        int count = socketChannel.read(buffer); //从通道读入数据（正常断开read结果为-1）
+                        if (count == -1) { //若本次读就绪拿到-1，则认为客户端主动断开了连接
+                            socketChannel.close(); //服务端关闭客户端通道
+                            key.cancel(); //断连后就将该事件从选择器的SelectionKey集合中移除（这里说一下，这里不是真正意义上的移除，这里是取消，会将该key放入取消队列里，在下次select函数调用时才负责清空）
+                            System.out.println("连接关闭");
+                            continue;
+                        }
+                        System.out.println(String.format("收到来自 %s 的消息: %s",
+                                socketChannel.getRemoteAddress(),
+                                new String(buffer.array())));
+                    }catch (Exception e){
+                        //处理客户端异常断开连接的问题
+                        e.printStackTrace();
+                        key.cancel();//客户端断开连接了，需要将key取消（从selector的keys集合中真正删除）。
                     }
-                    System.out.println(String.format("收到来自 %s 的消息: %s",
-                            socketChannel.getRemoteAddress(),
-                            new String(buffer.array())));
+
                 }
                 keys.remove(key);
             }
